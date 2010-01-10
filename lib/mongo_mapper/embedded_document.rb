@@ -7,6 +7,7 @@ module MongoMapper
         
         extend Associations::ClassMethods
         include Associations::InstanceMethods
+        include MongoMapper::NestedAttributes
 
         include RailsCompatibility::EmbeddedDocument
         include Validatable
