@@ -100,10 +100,10 @@ module MongoMapper
   end
 end
 
+require 'mongo_mapper/finder_options'
 require 'mongo_mapper/support'
 require 'mongo_mapper/descendant_appends'
 
-require 'mongo_mapper/finder_options'
 require 'mongo_mapper/dynamic_finder'
 require 'mongo_mapper/key'
 
@@ -114,6 +114,7 @@ require 'mongo_mapper/plugins/clone'
 require 'mongo_mapper/plugins/descendants'
 require 'mongo_mapper/plugins/dirty'
 require 'mongo_mapper/plugins/equality'
+require 'mongo_mapper/plugins/identity_map'
 require 'mongo_mapper/plugins/inspect'
 require 'mongo_mapper/plugins/keys'
 require 'mongo_mapper/plugins/logger'
