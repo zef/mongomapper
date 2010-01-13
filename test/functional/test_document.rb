@@ -593,7 +593,15 @@ class DocumentTest < Test::Unit::TestCase
     end
 
     should "allow to use custom methods to assign properties" do
-      person = RealPerson.new(:realname => 'David')
+      klass = Doc do
+        key :name, String
+        
+        def realname=(value)
+          self.name = value
+        end
+      end
+      
+      person = klass.new(:realname => 'David')
       person.save
       person.reload.name.should == 'David'
     end
@@ -713,15 +721,10 @@ class DocumentTest < Test::Unit::TestCase
       end
     end
 
-    should "insert document" do
+    should "insert invalid document" do
       doc = @document.new
+      doc.expects(:valid?).never
       doc.save(:validate => false)
-      @document.count.should == 1
-    end
-    
-    should "work with false passed to save" do
-      doc = @document.new
-      doc.save(false)
       @document.count.should == 1
     end
   end
@@ -956,11 +959,19 @@ class DocumentTest < Test::Unit::TestCase
 
   context "timestamping" do
     setup do
-      @document.timestamps!
+      @klass = Doc do
+        set_collection_name 'users'
+
+        key :first_name, String
+        key :last_name, String
+        key :age, Integer
+        key :date, Date
+      end
+      @klass.timestamps!
     end
 
     should "set created_at and updated_at on create" do
-      doc = @document.new(:first_name => 'John', :age => 27)
+      doc = @klass.new(:first_name => 'John', :age => 27)
       doc.created_at.should be(nil)
       doc.updated_at.should be(nil)
       doc.save
@@ -970,7 +981,7 @@ class DocumentTest < Test::Unit::TestCase
     
     should "not overwrite created_at if it already exists" do
       original_created_at = 1.month.ago
-      doc = @document.new(:first_name => 'John', :age => 27, :created_at => original_created_at)
+      doc = @klass.new(:first_name => 'John', :age => 27, :created_at => original_created_at)
       doc.created_at.to_i.should == original_created_at.to_i
       doc.updated_at.should be_nil
       doc.save
@@ -979,7 +990,7 @@ class DocumentTest < Test::Unit::TestCase
     end
 
     should "set updated_at on field update but leave created_at alone" do
-      doc = @document.create(:first_name => 'John', :age => 27)
+      doc = @klass.create(:first_name => 'John', :age => 27)
       old_created_at = doc.created_at
       old_updated_at = doc.updated_at
       doc.first_name = 'Johnny'
@@ -993,12 +1004,12 @@ class DocumentTest < Test::Unit::TestCase
     end
 
     should "set updated_at on document update but leave created_at alone" do
-      doc = @document.create(:first_name => 'John', :age => 27)
+      doc = @klass.create(:first_name => 'John', :age => 27)
       old_created_at = doc.created_at
       old_updated_at = doc.updated_at
 
       Timecop.freeze(Time.now + 5.seconds) do
-        @document.update(doc._id, { :first_name => 'Johnny' })
+        @klass.update(doc._id, { :first_name => 'Johnny' })
       end
 
       doc = doc.reload
@@ -1094,16 +1105,6 @@ class DocumentTest < Test::Unit::TestCase
       @instance.reload.object_id.should == @instance.object_id
     end
   end
-  
-  context "Saving a document with a custom id" do
-    should "clear custom id flag when saved" do
-      @document.key :_id, String
-      doc = @document.new(:id => '1234')
-      doc.using_custom_id?.should be_true
-      doc.save.should be_true
-      doc.using_custom_id?.should be_false
-    end
-  end
 
   context "Loading a document from the database with keys that are not defined" do
     setup do
@@ -1164,7 +1165,6 @@ class DocumentTest < Test::Unit::TestCase
     should "work with :index shortcut when defining key" do
       @document.key :father, String, :index => true
       MongoMapper.ensure_indexes!
-
       @document.should have_index('father_1')
     end
   end

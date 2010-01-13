@@ -7,13 +7,13 @@ class DocumentTest < Test::Unit::TestCase
       @document = Doc()
     end
     
+    should "return false for embeddable" do
+      Doc().embeddable?.should be_false
+    end
+    
     should "have logger method" do
       @document.logger.should == MongoMapper.logger
       @document.logger.should be_instance_of(Logger)
-    end
-    
-    should "track its descendants" do
-      MongoMapper::Document.descendants.should include(@document)
     end
 
     should "use default database by default" do
@@ -65,34 +65,6 @@ class DocumentTest < Test::Unit::TestCase
       @document.collection.should be_instance_of(Mongo::Collection)
       @document.collection.name.should == 'foobar'
     end
-
-    should 'allow extensions to Document to be appended' do
-      module Extension; def test_this_extension; end end
-      MongoMapper::Document.append_extensions(Extension)
-      article = Doc()
-      article.should respond_to(:test_this_extension)
-    end
-
-    should 'add appended extensions to classes that include Document before they are added' do
-      module Extension; def test_this_extension; end end
-      article = Doc()
-      MongoMapper::Document.append_extensions(Extension)
-      article.should respond_to(:test_this_extension)
-    end
-
-    should 'allow inclusions to Document to be appended' do
-      module Inclusion; def test_this_inclusion; end end
-      MongoMapper::Document.append_inclusions(Inclusion)
-      article = Doc()
-      article.new.should respond_to(:test_this_inclusion)
-    end
-
-    should 'add appended inclusions to classes that include Document before they are added' do
-      module Inclusion; def test_this_inclusion; end end
-      article = Doc()
-      MongoMapper::Document.append_inclusions(Inclusion)
-      article.new.should respond_to(:test_this_inclusion)
-    end
   end # Document class
   
   context "Documents that inherit from other documents" do
@@ -102,16 +74,22 @@ class DocumentTest < Test::Unit::TestCase
       Exit.collection_name.should    == 'messages'
       Chat.collection_name.should    == 'messages'
     end
-    
+
     should "default associations to inherited class" do
-     Message.associations.keys.should include("room")
-     Enter.associations.keys.should   include("room")
-     Exit.associations.keys.should    include("room")
-     Chat.associations.keys.should    include("room")
-   end
-    
-    should "track subclasses" do
-      Message.subclasses.should == [Enter, Exit, Chat]
+      Message.associations.keys.should include("room")
+      Enter.associations.keys.should   include("room")
+      Exit.associations.keys.should    include("room")
+      Chat.associations.keys.should    include("room")
+    end
+  end
+  
+  context "descendants" do
+    should "default to nil" do
+      Enter.descendants.should be_nil
+    end
+
+    should "be recorded" do
+      Message.descendants.should == [Enter, Exit, Chat]
     end
   end
 
@@ -121,6 +99,12 @@ class DocumentTest < Test::Unit::TestCase
         key :name, String
         key :age, Integer
       end
+    end
+    
+    should "have to_param that is string representation of id" do
+      doc = @document.new(:id => Mongo::ObjectID.new)
+      doc.to_param.should == doc.id.to_s
+      doc.to_param.should be_instance_of(String)
     end
     
     should "have access to logger" do
@@ -149,10 +133,6 @@ class DocumentTest < Test::Unit::TestCase
     end
 
     context "root document" do
-      should "have a nil _root_document" do
-        @document.new._root_document.should be_nil
-      end
-
       should "set self to the root document on embedded documents" do        
         klass = Doc()
         pets = EDoc()
@@ -178,7 +158,7 @@ class DocumentTest < Test::Unit::TestCase
     end
 
     context "clone" do
-      should "not set the id" do
+      should "be new" do
         doc = @document.create(:name => "foo", :age => 27)
         clone = doc.clone
         clone.should be_new
@@ -190,6 +170,11 @@ class DocumentTest < Test::Unit::TestCase
         clone.name.should == "foo"
         clone.age.should == 27
       end
+    end
+
+    should "call inspect on the document's attributes instead of to_s when inspecting the document" do
+      doc = @document.new(:animals => %w(dog cat))
+      doc.inspect.should include(%(animals: ["dog", "cat"]))
     end
 
     context "equality" do

@@ -17,7 +17,7 @@ end
 
 module KeyOverride
   def other_child
-    read_attribute(:other_child) || "special result"
+    self[:other_child] || "special result"
   end
   
   def other_child=(value)
@@ -32,15 +32,10 @@ class OtherChild < Parent
   key :other_child, String
 end
 
-class EmbeddedDocumentTest < Test::Unit::TestCase 
+class EmbeddedDocumentTest < Test::Unit::TestCase
   context "Including MongoMapper::EmbeddedDocument in a class" do
     setup do
       @klass = EDoc()
-    end
-    
-    should "give class access to logger" do
-      @klass.logger.should == MongoMapper.logger
-      @klass.logger.should be_instance_of(Logger)
     end
     
     should "add _id key" do
@@ -55,8 +50,22 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
       @klass.key :_id, String
       @klass.using_object_id?.should be_false
     end
+  end
+  
+  context "Class Methods" do
+    should "include logger" do
+      @klass = EDoc()
+      @klass.logger.should == MongoMapper.logger
+      @klass.logger.should be_instance_of(Logger)
+    end
+    
+    should "return false for embeddable" do
+      EDoc().embeddable?.should be_true
+    end
     
     context "#to_mongo" do
+      setup { @klass = EDoc() }
+      
       should "be nil if nil" do
         @klass.to_mongo(nil).should be_nil
       end
@@ -70,6 +79,8 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
     end
     
     context "#from_mongo" do
+      setup { @klass = EDoc() }
+      
       should "be nil if nil" do
         @klass.from_mongo(nil).should be_nil
       end
@@ -85,195 +96,110 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         doc.foo.should == 'bar'
       end
     end
-  end
-  
-  context "parent_model" do
-    should "be nil if none of parents ancestors include EmbeddedDocument" do
-      parent = Class.new
-      document = Class.new(parent) { include MongoMapper::EmbeddedDocument }
-      document.parent_model.should be_nil
-    end
 
-    should "work when other modules have been included" do
-      grandparent = Class.new
-      parent = Class.new(grandparent) { include MongoMapper::EmbeddedDocument }
-      
-      example_module = Module.new
-      document = Class.new(parent) do
-        include MongoMapper::EmbeddedDocument
-        include example_module
+    context "defining a key" do
+      setup do
+        @document = EDoc()
       end
-      
-      document.parent_model.should == parent
-    end
-    
-    should "find parent" do
-      Parent.parent_model.should == Grandparent
-      Child.parent_model.should == Parent
-    end
-  end
-  
-  context "defining a key" do
-    setup do
-      @document = EDoc()
-    end
-    
-    should "work with name" do
-      key = @document.key(:name)
-      key.name.should == 'name'
-    end
-    
-    should "work with name and type" do
-      key = @document.key(:name, String)
-      key.name.should == 'name'
-      key.type.should == String
-    end
-    
-    should "work with name, type and options" do
-      key = @document.key(:name, String, :required => true)
-      key.name.should == 'name'
-      key.type.should == String
-      key.options[:required].should be_true
-    end
-    
-    should "work with name and options" do
-      key = @document.key(:name, :required => true)
-      key.name.should == 'name'
-      key.options[:required].should be_true
-    end
-    
-    should "be tracked per document" do
-      @document.key(:name, String)
-      @document.key(:age, Integer)
-      @document.keys['name'].name.should == 'name'
-      @document.keys['name'].type.should == String
-      @document.keys['age'].name.should == 'age'
-      @document.keys['age'].type.should == Integer
-    end
-    
-    should "be redefinable" do
-      @document.key(:foo, String)
-      @document.keys['foo'].type.should == String
-      @document.key(:foo, Integer)
-      @document.keys['foo'].type.should == Integer
-    end
-    
-    should "create reader method" do
-      @document.new.should_not respond_to(:foo)
-      @document.key(:foo, String)
-      @document.new.should respond_to(:foo)
-    end
-    
-    should "create reader before typecast method" do
-      @document.new.should_not respond_to(:foo_before_typecast)
-      @document.key(:foo, String)
-      @document.new.should respond_to(:foo_before_typecast)
-    end
-    
-    should "create writer method" do
-      @document.new.should_not respond_to(:foo=)
-      @document.key(:foo, String)
-      @document.new.should respond_to(:foo=)
-    end
-    
-    should "create boolean method" do
-      @document.new.should_not respond_to(:foo?)
-      @document.key(:foo, String)
-      @document.new.should respond_to(:foo?)
-    end
-  end
-  
-  context "keys" do
-    should "be inherited" do
-      Grandparent.keys.keys.sort.should == ['_id', 'grandparent']
-      Parent.keys.keys.sort.should == ['_id', 'grandparent', 'parent']
-      Child.keys.keys.sort.should  == ['_id', 'child', 'grandparent', 'parent']
-    end
-    
-    should "propogate to subclasses if key added after class definition" do
-      Grandparent.key :_type, String
-      
-      Grandparent.keys.keys.sort.should == ['_id', '_type', 'grandparent']
-      Parent.keys.keys.sort.should      == ['_id', '_type', 'grandparent', 'parent']
-      Child.keys.keys.sort.should       == ['_id', '_type', 'child', 'grandparent', 'parent']
-    end
 
-    should "not add anonymous objects to the ancestor tree" do
-      OtherChild.ancestors.any? { |a| a.name.blank? }.should be_false
-    end
+      should "work with name" do
+        key = @document.key(:name)
+        key.name.should == 'name'
+      end
 
-    should "not include descendant keys" do
-      lambda { Parent.new.other_child }.should raise_error
-    end
-  end
+      should "work with name and type" do
+        key = @document.key(:name, String)
+        key.name.should == 'name'
+        key.type.should == String
+      end
 
-  context "#inspect" do
-    setup do
-      @document = Doc do
-        key :animals
+      should "work with name, type and options" do
+        key = @document.key(:name, String, :required => true)
+        key.name.should == 'name'
+        key.type.should == String
+        key.options[:required].should be_true
+      end
+
+      should "work with name and options" do
+        key = @document.key(:name, :required => true)
+        key.name.should == 'name'
+        key.options[:required].should be_true
+      end
+
+      should "be tracked per document" do
+        @document.key(:name, String)
+        @document.key(:age, Integer)
+        @document.keys['name'].name.should == 'name'
+        @document.keys['name'].type.should == String
+        @document.keys['age'].name.should == 'age'
+        @document.keys['age'].type.should == Integer
+      end
+
+      should "be redefinable" do
+        @document.key(:foo, String)
+        @document.keys['foo'].type.should == String
+        @document.key(:foo, Integer)
+        @document.keys['foo'].type.should == Integer
+      end
+
+      should "create reader method" do
+        @document.new.should_not respond_to(:foo)
+        @document.key(:foo, String)
+        @document.new.should respond_to(:foo)
+      end
+
+      should "create reader before typecast method" do
+        @document.new.should_not respond_to(:foo_before_typecast)
+        @document.key(:foo, String)
+        @document.new.should respond_to(:foo_before_typecast)
+      end
+
+      should "create writer method" do
+        @document.new.should_not respond_to(:foo=)
+        @document.key(:foo, String)
+        @document.new.should respond_to(:foo=)
+      end
+
+      should "create boolean method" do
+        @document.new.should_not respond_to(:foo?)
+        @document.key(:foo, String)
+        @document.new.should respond_to(:foo?)
       end
     end
-
-    should "call inspect on the document's attributes instead of to_s" do
-      doc = @document.new
-      doc.animals = %w(dog cat)
-      doc.inspect.should include(%(animals: ["dog", "cat"]))
-    end
-  end
-  
-  context "subclasses" do
-    should "default to nil" do
-      Child.subclasses.should be_nil
-    end
     
-    should "be recorded" do
-      Grandparent.subclasses.should == [Parent]
-      Parent.subclasses.should      == [Child, OtherChild]
-    end
-  end
-  
-  context "Applying default values for keys" do
-    setup do
-      @document = EDoc do
-        key :name,      String,   :default => 'foo'
-        key :age,       Integer,  :default => 20
-        key :net_worth, Float,    :default => 100.00
-        key :active,    Boolean,  :default => true
-        key :smart,     Boolean,  :default => false
-        key :skills,    Array,    :default => [1]
-        key :options,   Hash,     :default => {'foo' => 'bar'}
+    context "keys" do
+      should "be inherited" do
+        Grandparent.keys.keys.sort.should == ['_id', 'grandparent']
+        Parent.keys.keys.sort.should == ['_id', 'grandparent', 'parent']
+        Child.keys.keys.sort.should  == ['_id', 'child', 'grandparent', 'parent']
       end
-      
-      @doc = @document.new
+
+      should "propogate to descendants if key added after class definition" do
+        Grandparent.key :_type, String
+
+        Grandparent.keys.keys.sort.should == ['_id', '_type', 'grandparent']
+        Parent.keys.keys.sort.should      == ['_id', '_type', 'grandparent', 'parent']
+        Child.keys.keys.sort.should       == ['_id', '_type', 'child', 'grandparent', 'parent']
+      end
+
+      should "not add anonymous objects to the ancestor tree" do
+        OtherChild.ancestors.any? { |a| a.name.blank? }.should be_false
+      end
+
+      should "not include descendant keys" do
+        lambda { Parent.new.other_child }.should raise_error
+      end
     end
     
-    should "work for strings" do
-      @doc.name.should == 'foo'
-    end
-    
-    should "work for integers" do
-      @doc.age.should == 20
-    end
-    
-    should "work for floats" do
-      @doc.net_worth.should == 100.00
-    end
-    
-    should "work for booleans" do
-      @doc.active.should == true
-      @doc.smart.should == false
-    end
-    
-    should "work for arrays" do
-      @doc.skills.should == [1]
-      @doc.skills << 2
-      @doc.skills.should == [1, 2]
-    end
-    
-    should "work for hashes" do
-      @doc.options['foo'].should == 'bar'
-      @doc.options['baz'] = 'wick'
-      @doc.options['baz'].should == 'wick'
+    context "descendants" do
+      should "default to nil" do
+        Child.descendants.should be_nil
+      end
+
+      should "be recorded" do
+        Grandparent.descendants.should == [Parent]
+        Parent.descendants.should      == [Child, OtherChild]
+      end
     end
   end
 
@@ -307,41 +233,37 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
       doc.id.should == id
     end
     
-    context "assigning id with _id ObjectId type" do
-      should "not set custom id flag" do
-        doc = @document.new
-        doc.using_custom_id?.should be_false
-        doc.id = Mongo::ObjectID.new
-        doc.using_custom_id?.should be_false
-      end
+    should "convert string object id to mongo object id when assigning id with _id object id type" do
+      id = Mongo::ObjectID.new
       
-      should "convert string object id to mongo object id" do
-        id = Mongo::ObjectID.new
-        doc = @document.new(:id => id.to_s)
-        doc._id.should == id
-        doc.id.should == id
-        doc.using_custom_id?.should be_false
-      end
+      doc = @document.new(:id => id.to_s)
+      doc._id.should == id
+      doc.id.should == id
+      
+      doc = @document.new(:_id => id.to_s)
+      doc._id.should == id
+      doc.id.should == id
     end
 
-    context "setting custom id" do
-      should "set _id" do
-        @document.key :_id, String
-        doc = @document.new(:id => '1234')
-        doc._id.should == '1234'
+    context "_root_document" do
+      should "default to nil" do
+        @document.new._root_document.should be_nil
       end
-      
-      should "know that custom id is set" do
-        @document.key :_id, String
-        doc = @document.new
-        doc.using_custom_id?.should be_false
-        doc.id = '1234'
-        doc.using_custom_id?.should be_true
-      end
-    end
 
-    should "have a nil _root_document" do
-      @document.new._root_document.should be_nil
+      should "allow setting when initialized" do
+        root = Doc().new
+        doc  = @document.new :_root_document => root
+        
+        doc._root_document.should be(root)
+      end
+
+      should "also be set on many embedded documents" do
+        root  = Doc().new
+        klass = EDoc { many :children }
+        doc   = klass.new(:_root_document => root, :children => [{}])
+        
+        doc.children.first._root_document.should == root
+      end
     end
 
     context "being initialized" do
@@ -358,43 +280,26 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         doc.skills.should == ['ruby', 'rails']
       end
 
-      should "set the root on embedded documents" do
-        document = Class.new(@document) do
-          many :children
-        end
-
-        doc = document.new :_root_document => 'document', 'children' => [{}]
-        doc.children.first._root_document.should == 'document'
-      end
-
       should "not throw error if initialized with nil" do
-        lambda {
-          @document.new(nil)
-        }.should_not raise_error
+        assert_nothing_raised { @document.new(nil) }
       end
     end
     
     context "initialized when _type key present" do
       setup do
-        ::FooBar = EDoc do
-          key :_type, String
-        end
-      end
-      
-      teardown do
-        Object.send(:remove_const, :FooBar)
+        @klass = EDoc('FooBar') { key :_type, String }
       end
 
       should "set _type to class name" do
-        FooBar.new._type.should == 'FooBar'
+        @klass.new._type.should == 'FooBar'
       end
       
       should "not change _type if already set" do
-        FooBar.new(:_type => 'Foo')._type.should == 'Foo'
+        @klass.new(:_type => 'Foo')._type.should == 'Foo'
       end
     end
 
-    context "mass assigning keys" do
+    context "attributes=" do
       should "update values for keys provided" do
         doc = @document.new(:name => 'foobar', :age => 10)
         doc.attributes = {:name => 'new value', :age => 5}
@@ -409,7 +314,7 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         doc.attributes[:age].should == 10
       end
 
-      should "not ignore keys that have methods defined" do
+      should "work with pre-defined methods" do
         @document.class_eval do
           attr_writer :password
 
@@ -441,28 +346,26 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         doc.attributes.values.should include('string')
         doc.attributes.values.should include(nil)
       end
+      
+      should "have indifferent access" do
+        doc = @document.new(:name => 'string')
+        doc.attributes[:name].should == 'string'
+        doc.attributes['name'].should == 'string'
+      end
     end
     
     context "to_mongo" do
       should "default to hash with _id key" do
         doc = @document.new
-        doc.to_mongo.keys.should == ['_id']
+        doc.to_mongo.keys.sort.should == ['_id', 'age', 'name']
       end
       
-      should "return all keys with non nil values" do
+      should "return all keys" do
         doc = @document.new(:name => 'string', :age => nil)
-        doc.to_mongo.keys.sort.should == ['_id', 'name']
+        doc.to_mongo.keys.sort.should == ['_id', 'age', 'name']
         doc.to_mongo.values.should include('string')
-        doc.to_mongo.values.should_not include(nil)
+        doc.to_mongo.values.should include(nil)
       end
-    end
-    
-    should "convert dates into times" do
-      document = Class.new(@document) do
-        key :start_date, Date
-      end
-      doc = document.new :start_date => "12/05/2009"
-      doc.start_date.should == Date.new(2009, 12, 05)
     end
 
     context "clone" do
@@ -491,9 +394,7 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         
         should "raise exception when key not found" do
           doc = @document.new(:name => 'string')
-          lambda {
-            doc[:not_here]
-          }.should raise_error(MongoMapper::KeyNotFound)
+          assert_raises(MongoMapper::KeyNotFound) { doc[:not_here] }
         end
       end
       
@@ -507,27 +408,19 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         should "create key and write value for missing key" do
           doc = @document.new
           doc[:foo] = 'string'
-          doc.metaclass.keys.include?('foo').should be_true
+          doc.class.keys.include?('foo').should be_true
           doc[:foo].should == 'string'
         end
 
-         should "not share the new key" do
+         should "share the new key with the class" do
            doc = @document.new
            doc[:foo] = 'string'
-           @document.keys.should_not include('foo')
+           @document.keys.should include('foo')
          end
       end
     end
-    
-    context "indifferent access" do
-      should "be enabled for keys" do
-        doc = @document.new(:name => 'string')
-        doc.attributes[:name].should == 'string'
-        doc.attributes['name'].should == 'string'
-      end
-    end
 
-    context "reading an attribute" do
+    context "reading a key" do
       should "work for defined keys" do
         doc = @document.new(:name => 'string')
         doc.name.should == 'string'
@@ -541,7 +434,7 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
       should "be accessible for use in the model" do
         @document.class_eval do
           def name_and_age
-            "#{read_attribute(:name)} (#{read_attribute(:age)})"
+            "#{self[:name]} (#{self[:age]})"
           end
         end
 
@@ -572,7 +465,7 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
       end
     end
 
-    context "reading an attribute before typcasting" do
+    context "reading a key before typcasting" do
       should "work for defined keys" do
         doc = @document.new(:name => 12)
         doc.name_before_typecast.should == 12
@@ -586,7 +479,7 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
       should "be accessible for use in a document" do
         @document.class_eval do
           def untypcasted_name
-            read_attribute_before_typecast(:name)
+            read_key_before_typecast(:name)
           end
         end
 
@@ -596,7 +489,7 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
       end
     end
 
-    context "writing an attribute" do
+    context "writing a key" do
       should "work for defined keys" do
         doc = @document.new
         doc.name = 'John'
@@ -620,8 +513,8 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         @document.class_eval do
           def name_and_age=(new_value)
             new_value.match(/([^\(\s]+) \((.*)\)/)
-            write_attribute :name, $1
-            write_attribute :age, $2
+            write_key :name, $1
+            write_key :age, $2
           end
         end
 
@@ -644,9 +537,9 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         overriden_child = @document.new(:other_child => 'foo')
         overriden_child.other_child.should == 'foo modified'
       end
-    end # writing an attribute
+    end # writing a key
     
-    context "checking if an attributes value is present" do
+    context "checking if a keys value is present" do
       should "work for defined keys" do
         doc = @document.new
         doc.name?.should be_false
@@ -658,6 +551,11 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         doc = @document.new
         lambda { doc.fart? }.should raise_error(NoMethodError)
       end
+    end
+    
+    should "call inspect on the document's attributes instead of to_s when inspecting the document" do
+      doc = @document.new(:animals => %w(dog cat))
+      doc.inspect.should include(%(animals: ["dog", "cat"]))
     end
     
     context "equality" do
@@ -675,6 +573,51 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
       should "not be equal if id same but class different" do
         another_document = Doc()
         (@document.new('_id' => @oid) == another_document.new('_id' => @oid)).should be_false
+      end
+    end
+    
+    context "reading keys with default values" do
+      setup do
+        @document = EDoc do
+          key :name,      String,   :default => 'foo'
+          key :age,       Integer,  :default => 20
+          key :net_worth, Float,    :default => 100.00
+          key :active,    Boolean,  :default => true
+          key :smart,     Boolean,  :default => false
+          key :skills,    Array,    :default => [1]
+          key :options,   Hash,     :default => {'foo' => 'bar'}
+        end
+
+        @doc = @document.new
+      end
+
+      should "work for strings" do
+        @doc.name.should == 'foo'
+      end
+
+      should "work for integers" do
+        @doc.age.should == 20
+      end
+
+      should "work for floats" do
+        @doc.net_worth.should == 100.00
+      end
+
+      should "work for booleans" do
+        @doc.active.should == true
+        @doc.smart.should == false
+      end
+
+      should "work for arrays" do
+        @doc.skills.should == [1]
+        @doc.skills << 2
+        @doc.skills.should == [1, 2]
+      end
+
+      should "work for hashes" do
+        @doc.options['foo'].should == 'bar'
+        @doc.options['baz'] = 'wick'
+        @doc.options['baz'].should == 'wick'
       end
     end
   end # instance of a embedded document

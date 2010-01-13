@@ -1,66 +1,37 @@
-require 'set'
-
 module MongoMapper
   module Document
+    extend DescendantAppends
+
     def self.included(model)
       model.class_eval do
-        include EmbeddedDocument
         include InstanceMethods
-        include Callbacks
-        include Dirty
-        include RailsCompatibility::Document
-        extend Validations::Macros
-        extend ClassMethods
-        extend Finders
+        extend  ClassMethods
+        extend  Finders
 
-        def self.per_page
-          25
-        end unless respond_to?(:per_page)
+        extend Plugins
+        plugin Plugins::Associations
+        plugin Plugins::Clone
+        plugin Plugins::Descendants
+        plugin Plugins::Equality
+        plugin Plugins::Inspect
+        plugin Plugins::Keys
+        plugin Plugins::Dirty # for now dirty needs to be after keys
+        plugin Plugins::Logger
+        plugin Plugins::Pagination
+        plugin Plugins::Rails
+        plugin Plugins::Serialization
+        plugin Plugins::Validations
+        plugin Plugins::Callbacks # for now callbacks needs to be after validations
+        extend Plugins::Validations::DocumentMacros
       end
-
-      extra_extensions.each { |extension| model.extend(extension) }
-      extra_inclusions.each { |inclusion| model.send(:include, inclusion) }
-
-      descendants << model
-    end
-
-    def self.descendants
-      @descendants ||= Set.new
-    end
-
-    def self.append_extensions(*extensions)
-      extra_extensions.concat extensions
-
-      # Add the extension to existing descendants
-      descendants.each do |model|
-        extensions.each { |extension| model.extend(extension) }
-      end
-    end
-
-    # @api private
-    def self.extra_extensions
-      @extra_extensions ||= []
-    end
-
-    def self.append_inclusions(*inclusions)
-      extra_inclusions.concat inclusions
-
-      # Add the inclusion to existing descendants
-      descendants.each do |model|
-        inclusions.each { |inclusion| model.send :include, inclusion }
-      end
-    end
-
-    # @api private
-    def self.extra_inclusions
-      @extra_inclusions ||= []
+      
+      super
     end
     
     module ClassMethods
-      def key(*args)
-        key = super
-        create_indexes_for(key)
-        key
+      def inherited(subclass)
+        subclass.set_collection_name(collection_name)
+        super
       end
 
       def ensure_index(name_or_array, options={})
@@ -96,17 +67,6 @@ module MongoMapper
         find!(*args)
       rescue DocumentNotFound
         nil
-      end
-
-      def paginate(options)
-        per_page      = options.delete(:per_page) || self.per_page
-        page          = options.delete(:page)
-        total_entries = count(options)
-        pagination    = Pagination::PaginationProxy.new(total_entries, page, per_page)
-
-        options.merge!(:limit => pagination.limit, :skip => pagination.skip)
-        pagination.subject = find_every(options)
-        pagination
       end
 
       def first(options={})
@@ -204,6 +164,10 @@ module MongoMapper
         modifier_update('$pullAll', args)
       end
       
+      def pop(*args)
+        modifier_update('$pop', args)
+      end
+      
       def modifier_update(modifier, args)
         criteria, keys = criteria_and_keys_from_args(args)
         modifiers = {modifier => keys}
@@ -217,6 +181,10 @@ module MongoMapper
         [to_criteria(criteria), keys]
       end
       private :criteria_and_keys_from_args
+
+      def embeddable?
+        false
+      end
 
       def connection(mongo_connection=nil)
         if mongo_connection.nil?
@@ -269,23 +237,19 @@ module MongoMapper
       end
 
       def single_collection_inherited?
-        keys.has_key?('_type') && single_collection_inherited_superclass?
+        keys.key?(:_type) && single_collection_inherited_superclass?
       end
 
       def single_collection_inherited_superclass?
-        superclass.respond_to?(:keys) && superclass.keys.has_key?('_type')
+        superclass.respond_to?(:keys) && superclass.keys.key?(:_type)
       end
 
       private
-        def create_indexes_for(key)
-          ensure_index key.name if key.options[:index]
-        end
-
         def initialize_each(*docs)
           instances = []
           docs = [{}] if docs.blank?
           docs.flatten.each do |attrs|
-            doc = initialize_doc(attrs)
+            doc = new(attrs)
             yield(doc)
             instances << doc
           end
@@ -295,7 +259,7 @@ module MongoMapper
         def find_every(options)
           criteria, options = to_finder_options(options)
           collection.find(criteria, options).to_a.map do |doc|
-            initialize_doc(doc)
+            load(doc)
           end
         end
 
@@ -313,7 +277,7 @@ module MongoMapper
         def find_one(options={})
           criteria, options = to_finder_options(options)
           if doc = collection.find_one(criteria, options)
-            initialize_doc(doc)
+            load(doc)
           end
         end
 
@@ -366,20 +330,12 @@ module MongoMapper
       def collection
         self.class.collection
       end
-      
+
       def database
         self.class.database
       end
 
-      def new?
-        read_attribute('_id').blank? || using_custom_id?
-      end
-
       def save(options={})
-        if options === false
-          ActiveSupport::Deprecation.warn "save with true/false is deprecated. You should now use :validate => true/false."
-          options = {:validate => false}
-        end
         options.reverse_merge!(:validate => true)
         perform_validations = options.delete(:validate)
         !perform_validations || valid? ? create_or_update(options) : false
@@ -388,9 +344,19 @@ module MongoMapper
       def save!
         save || raise(DocumentNotValid.new(self))
       end
+      
+      def update_attributes(attrs={})
+        self.attributes = attrs
+        save
+      end
+
+      def update_attributes!(attrs={})
+        self.attributes = attrs
+        save!
+      end
 
       def destroy
-        self.class.delete(id) unless new?
+        delete
       end
       
       def delete
@@ -411,14 +377,7 @@ module MongoMapper
       end
 
       def create(options={})
-        assign_id
         save_to_collection(options)
-      end
-
-      def assign_id
-        if read_attribute(:_id).blank?
-          write_attribute :_id, Mongo::ObjectID.new
-        end
       end
 
       def update(options={})
@@ -426,19 +385,15 @@ module MongoMapper
       end
 
       def save_to_collection(options={})
-        clear_custom_id_flag
         safe = options.delete(:safe) || false
+        @new = false
         collection.save(to_mongo, :safe => safe)
       end
 
       def update_timestamps
         now = Time.now.utc
-        write_attribute('created_at', now) if new? && read_attribute('created_at').blank?
-        write_attribute('updated_at', now)
-      end
-
-      def clear_custom_id_flag
-        @using_custom_id = nil
+        self[:created_at] = now if new? && !created_at?
+        self[:updated_at] = now
       end
     end
   end # Document
