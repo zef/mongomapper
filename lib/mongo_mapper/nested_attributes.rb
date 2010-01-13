@@ -19,7 +19,6 @@ module MongoMapper
                 assign_nested_attributes_for_association(:#{association_name}, attributes, #{options[:allow_destroy]})
               end
               }, __FILE__, __LINE__
-              # assign_nested_attributes_for_#{type}_association(:#{association_name}, attributes, #{options[:allow_destroy]})
             else
               raise ArgumentError, "No association found for name `#{association_name}'. Has it been defined yet?"
             end
@@ -47,7 +46,7 @@ module MongoMapper
           if attributes['_id'].blank?
             send(association_name) << association_name.to_s.classify.constantize.new(attributes)
           elsif existing_record = send(association_name).detect { |record| record.id.to_s == attributes['_id'].to_s }
-            if existing_record.has_destroy_flag?(attributes)
+            if existing_record.has_destroy_flag?(attributes) && allow_destroy
               send(association_name).delete(existing_record)
               existing_record.destroy unless association_name.to_s.classify.constantize.embeddable?
             else
@@ -56,15 +55,9 @@ module MongoMapper
           end
         end
 
-        #   unless reject_new_record?(association_name, attributes)
-        #     send("build_#{association_name}", attributes.except(*UNASSIGNABLE_KEYS))
-        #   end
-        # elsif (existing_record = send(association_name)) && existing_record.id.to_s == attributes['id'].to_s
-        #   assign_to_or_mark_for_destruction(existing_record, attributes, allow_destroy)
-        # end
       end
 
-      # Determines if a hash contains a truthy _destroy key.
+
       def has_destroy_flag?(hash)
         Boolean.to_mongo(hash['_destroy'])
       end

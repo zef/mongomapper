@@ -3,22 +3,19 @@ require 'models'
 
 class NestedAttributesTest < Test::Unit::TestCase
   def setup
-    Project.accepts_nested_attributes_for(:people, :collaborators)
+    Project.accepts_nested_attributes_for(:people, :collaborators, :allow_destroy => true)
     Project.collection.remove
   end
 
   context "A Document" do
     setup do
       @project = Project.create(:name => 'Nesting Attributes',
-                                :people_attributes => [{:name => 'Zef'}],
-                                :collaborators_attributes => [{:name => 'Zef'}]
+                                :people_attributes => [{:name => 'Dude'}],
+                                :collaborators_attributes => [{:name => 'Another Dude'}]
                                 )
     end
 
     should "accept nested attributes for embedded documents" do
-      # puts @project.attributes.inspect
-      # puts @project.people.inspect
-      # puts @project.collaborators.inspect
       @project.people.size.should == 1
     end
     should "accept nested attributes for associated documents" do
@@ -29,13 +26,8 @@ class NestedAttributesTest < Test::Unit::TestCase
       setup do
         person       = @project.people.first.attributes.merge({:_destroy => true})
         collaborator = @project.collaborators.first.attributes.merge({:_destroy => true})
-        puts @project.collaborators.inspect
-        
         # @project.update_attributes(:people_attributes => [person], :collaborators_attributes => [collaborator])
         @project.attributes = {:people_attributes => [person], :collaborators_attributes => [collaborator]}
-        puts @project.collaborators.inspect
-        # @project.save
-        puts @project.collaborators.inspect
       end
 
       should "not destroy associated documents until the document is saved" do
