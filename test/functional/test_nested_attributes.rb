@@ -1,59 +1,120 @@
 require 'test_helper'
-require 'models'
+
+class Player
+  include MongoMapper::EmbeddedDocument
+
+  key :name, String
+end
+
+class Team
+  include MongoMapper::Document
+
+  key :captain, Player
+
+  many :players
+  many :retired_players, :class => Player
+  
+  many :games
+end
+
+class Game
+  include MongoMapper::Document
+
+  key :opponent, String
+  key :team_id
+
+  belongs_to :team
+end
+
 
 class NestedAttributesTest < Test::Unit::TestCase
   def setup
-    Project.accepts_nested_attributes_for(:addresses, :collaborators, :allow_destroy => true)
-    Project.collection.remove
+    Team.collection.remove
   end
 
-  context "A Document" do
+  context "Passing nested attributes" do
     setup do
-      @project = Project.create(:name => 'Nesting Attributes',
-                                :addresses_attributes => [{:address => 'A place'}],
-                                :collaborators_attributes => [{:name => 'A dude'}]
-                                )
+      Team.accepts_nested_attributes_for(:players, :games, :retired_players, :captain, :allow_destroy => true)
+      @team = Team.create(:name => 'Nesting Attributes',
+                          :captain_attributes => {:name => 'Special guy'},
+                          :players_attributes => [{:name => 'Normal guy'}],
+                          :retired_players_attributes => [{:name => 'Old guy'}],
+                          :games_attributes => [{:opponent => 'Other team'}]
+                          )
     end
 
-    should "accept nested attributes for embedded documents" do
-      @project.addresses.size.should == 1
+    should "work for embedded documents" do
+      @team.captain.name.should == 'Special guy'
     end
-    should "accept nested attributes for associated documents" do
-      @project.collaborators.size.should == 1
-    end
-    
-    context "which already exists" do
-      setup do
-        address      = @project.addresses.first.attributes.merge({:_destroy => true})
-        collaborator = @project.collaborators.first.attributes.merge({:_destroy => true})
 
-        @project.attributes = {:addresses_attributes => [address], :collaborators_attributes => [collaborator]}
+    should "work for embedded collections" do
+      @team.players.size.should == 1
+      @team.players.first.name.should == 'Normal guy'
+    end
+
+    should "work for associated documents" do
+      @team.games.size.should == 1
+      @team.games.first.opponent.should == 'Other team'
+    end
+
+    should "work with custom class names" do
+      @team.retired_players.size.should == 1
+      @team.retired_players.first.name.should == 'Old guy'
+    end
+
+    context "with _destroy => true" do
+      context "when destruction is allowed" do
+        setup do
+          assign_attributes_to_delete_associated_documents
+        end
+
+        should_eventually "not destroy associated documents until the document is saved" do
+          @team.games.size.should == 1
+        end
+
+        should "destroy embedded documents when saved" do
+          @team.save
+          @team.captain.should be_nil
+        end
+
+        should "destroy documents in embedded collections when saved" do
+          @team.save
+          @team.players.size.should == 0
+        end
+
+        should "destroy associated documents when saved" do
+          @team.save
+          @team.games.size.should == 0
+        end
       end
 
-      should_eventually "not destroy associated documents until the document is saved" do
-        @project.collaborators.size.should == 1
+      context "when destruction is not allowed" do
+        should "not destroy nested documents" do
+          Team.accepts_nested_attributes_for(:players, :games, :captain, :allow_destroy => false)
+          assign_attributes_to_delete_associated_documents
+          @team.save
+          @team.captain.name.should == 'Special guy'
+          @team.players.size.should == 1
+          @team.games.size.should == 1
+        end
       end
-      
-      should "destroy embedded documents when saved" do
-        @project.save
-        @project.reload
-        @project.addresses.size.should == 0
-      end
-
-      should "destroy associated documents when saved" do
-        @project.save
-        @project.reload
-        @project.collaborators.size.should == 0
-      end      
     end
+
 
   end
 
   should "raise an ArgumentError for non existing associations" do
     lambda {
-      Project.accepts_nested_attributes_for :blah
+      Team.accepts_nested_attributes_for :blah
     }.should raise_error(ArgumentError)
   end
 
+  def assign_attributes_to_delete_associated_documents
+    captain = @team.captain.attributes.merge({:_destroy => true})
+    player  = @team.players.first.attributes.merge({:_destroy => true})
+    game    = @team.games.first.attributes.merge({:_destroy => true})
+
+    @team.attributes = {:players_attributes => [player], :games_attributes => [game], :captain_attributes => captain}
+  end
 
 end
