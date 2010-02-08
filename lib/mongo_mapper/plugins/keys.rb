@@ -1,6 +1,10 @@
 module MongoMapper
   module Plugins
     module Keys
+      def self.configure(model)
+        model.key :_id, ObjectId
+      end
+
       module ClassMethods
         def inherited(descendant)
           descendant.instance_variable_set(:@keys, keys.dup)
@@ -42,16 +46,13 @@ module MongoMapper
           value.is_a?(self) ? value : load(value)
         end
 
+        # load is overridden in identity map to ensure same objects are loaded
         def load(attrs)
           begin
             klass = attrs['_type'].present? ? attrs['_type'].constantize : self
-            doc = klass.new(attrs)
-            doc.instance_variable_set("@new", false)
-            doc
+            klass.new(attrs, true)
           rescue NameError
-            doc = new(attrs)
-            doc.instance_variable_set("@new", false)
-            doc
+            new(attrs, true)
           end
         end
 
@@ -121,6 +122,14 @@ module MongoMapper
               validates_format_of(attribute, :with => key.options[:format])
             end
 
+            if key.options[:in]
+              validates_inclusion_of(attribute, :within => key.options[:in])
+            end
+
+            if key.options[:not_in]
+              validates_exclusion_of(attribute, :within => key.options[:not_in])
+            end
+
             if key.options[:length]
               length_options = case key.options[:length]
               when Integer
@@ -134,29 +143,31 @@ module MongoMapper
             end
           end
       end
-      
+
       module InstanceMethods
-        def self.included(model)
-          model.key :_id, ObjectId
-        end
-        
-        def initialize(attrs={})
+        def initialize(attrs={}, from_database=false)
           unless attrs.nil?
             provided_keys = attrs.keys.map { |k| k.to_s }
             unless provided_keys.include?('_id') || provided_keys.include?('id')
               write_key :_id, Mongo::ObjectID.new
             end
           end
-          
-          @new = true
-          self._type = self.class.name if respond_to?(:_type=)
-          self.attributes = attrs
+
+          assign_type_if_present
+
+          if from_database
+            @new = false
+            self.attributes = attrs
+          else
+            @new = true
+            assign(attrs)
+          end
         end
-        
+
         def new?
           @new
         end
-        
+
         def attributes=(attrs)
           return if attrs.blank?
           
@@ -188,7 +199,21 @@ module MongoMapper
           attrs
         end
         alias :to_mongo :attributes
-        
+
+        def assign(attrs={})
+          self.attributes = attrs
+        end
+
+        def update_attributes(attrs={})
+          assign(attrs)
+          save
+        end
+
+        def update_attributes!(attrs={})
+          assign(attrs)
+          save!
+        end
+
         def id
           _id
         end
@@ -231,6 +256,10 @@ module MongoMapper
         end
 
         private
+          def assign_type_if_present
+            self._type = self.class.name if respond_to?(:_type=)
+          end
+          
           def ensure_key_exists(name)
             self.class.key(name) unless respond_to?("#{name}=")
           end

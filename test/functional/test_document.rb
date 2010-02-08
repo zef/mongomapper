@@ -13,7 +13,7 @@ class DocumentTest < Test::Unit::TestCase
     end
   end
   
-  context "Using key with type Array" do
+  context "array key" do
     setup do
       @document.key :tags, Array
     end
@@ -60,7 +60,7 @@ class DocumentTest < Test::Unit::TestCase
     end
   end
 
-  context "Using key with type Hash" do
+  context "hash key" do
     setup do
       @document.key :foo, Hash
     end
@@ -95,7 +95,7 @@ class DocumentTest < Test::Unit::TestCase
     end
   end
 
-  context "Using key with custom type with default" do
+  context "custom type key with default" do
     setup do
       @document.key :window, WindowSize, :default => WindowSize.new(600, 480)
     end
@@ -239,7 +239,19 @@ class DocumentTest < Test::Unit::TestCase
     end
 
     should "raise document not found if nothing provided for find!" do
-      lambda { @document.find! }.should raise_error(MongoMapper::DocumentNotFound)
+      assert_raises(MongoMapper::DocumentNotFound) do
+        @document.find!
+      end
+    end
+    
+    should "raise error if trying to find with :all, :first, or :last" do
+      [:all, :first, :last].each do |m|
+        assert_raises(ArgumentError) { @document.find(m) }
+      end
+
+      [:all, :first, :last].each do |m|
+        assert_raises(ArgumentError) { @document.find!(m) }
+      end
     end
 
     context "(with a single id)" do
@@ -252,9 +264,7 @@ class DocumentTest < Test::Unit::TestCase
       end
 
       should "raise error if document not found with find!" do
-        lambda {
-          @document.find!(123)
-        }.should raise_error(MongoMapper::DocumentNotFound)
+        assert_raises(MongoMapper::DocumentNotFound) { @document.find!(123) }
       end
     end
 
@@ -267,7 +277,17 @@ class DocumentTest < Test::Unit::TestCase
         @document.find([@doc1._id, @doc2._id]).should == [@doc1, @doc2]
       end
 
-      should "return array if array only has one element" do
+      should "compact not found when using find" do
+        @document.find(@doc1._id, 1234).should == [@doc1]
+      end
+
+      should "raise error if not all found when using find!" do
+        assert_raises(MongoMapper::DocumentNotFound) do
+          @document.find!(@doc1._id, 1234)
+        end
+      end
+
+      should "return array if array with one element" do
         @document.find([@doc1._id]).should == [@doc1]
       end
     end
@@ -277,43 +297,21 @@ class DocumentTest < Test::Unit::TestCase
       @document.all(:last_name => 'Nunemaker', :order => 'age desc').should == [@doc1, @doc3]
     end
 
-    context "(with :all)" do
-      should "find all documents" do
-        @document.find(:all, :order => 'first_name').should == [@doc1, @doc3, @doc2]
-      end
-
-      should "be able to add conditions" do
-        @document.find(:all, :first_name => 'John').should == [@doc1]
-      end
-    end
-
-    context "(with #all)" do
+    context "#all" do
       should "find all documents based on criteria" do
         @document.all(:order => 'first_name').should == [@doc1, @doc3, @doc2]
         @document.all(:last_name => 'Nunemaker', :order => 'age desc').should == [@doc1, @doc3]
       end
     end
 
-    context "(with :first)" do
-      should "find first document" do
-        @document.find(:first, :order => 'first_name').should == @doc1
-      end
-    end
-
-    context "(with #first)" do
+    context "#first" do
       should "find first document based on criteria" do
         @document.first(:order => 'first_name').should == @doc1
         @document.first(:age => 28).should == @doc2
       end
     end
 
-    context "(with :last)" do
-      should "find last document" do
-        @document.find(:last, :order => 'age').should == @doc2
-      end
-    end
-
-    context "(with #last)" do
+    context "#last" do
       should "find last document based on criteria" do
         @document.last(:order => 'age').should == @doc2
         @document.last(:order => 'age', :age => 28).should == @doc2
@@ -324,7 +322,7 @@ class DocumentTest < Test::Unit::TestCase
       end
     end
 
-    context "(with :find_by)" do
+    context "#find_by..." do
       should "find document based on argument" do
         @document.find_by_first_name('John').should == @doc1
         @document.find_by_last_name('Nunemaker', :order => 'age desc').should == @doc1
@@ -340,7 +338,19 @@ class DocumentTest < Test::Unit::TestCase
       end
     end
 
-    context "(with dynamic finders)" do
+    context "#find_each" do
+      should "yield all documents found, based on criteria" do
+        yield_documents = []
+        @document.find_each(:order => "first_name") {|doc| yield_documents << doc }
+        yield_documents.should == [@doc1, @doc3, @doc2]
+
+        yield_documents = []
+        @document.find_each(:last_name => 'Nunemaker', :order => 'age desc') {|doc| yield_documents << doc }
+        yield_documents.should == [@doc1, @doc3]
+      end
+    end
+
+    context "dynamic finders" do
       should "find document based on all arguments" do
         @document.find_by_first_name_and_last_name_and_age('John', 'Nunemaker', 27).should == @doc1
       end
@@ -393,7 +403,44 @@ class DocumentTest < Test::Unit::TestCase
     end
 
     should "return nil if document not found" do
-      @document.find_by_id(1234).should be(nil)
+      @document.find_by_id(1234).should be_nil
+    end
+  end
+
+  context "first_or_create" do
+    should "find if exists" do
+      created = @document.create(:first_name => 'John', :last_name => 'Nunemaker')
+      lambda {
+        found = @document.first_or_create(:first_name => 'John', :last_name => 'Nunemaker')
+        found.should == created
+      }.should_not change { @document.count }
+    end
+
+    should "create if not found" do
+      lambda {
+        created = @document.first_or_create(:first_name => 'John', :last_name => 'Nunemaker')
+        created.first_name.should == 'John'
+        created.last_name.should == 'Nunemaker'
+      }.should change { @document.count }.by(1)
+    end
+  end
+
+  context "first_or_new" do
+    should "find if exists" do
+      created = @document.create(:first_name => 'John', :last_name => 'Nunemaker')
+      lambda {
+        found = @document.first_or_new(:first_name => 'John', :last_name => 'Nunemaker')
+        found.should == created
+      }.should_not change { @document.count }
+    end
+
+    should "initialize if not found" do
+      lambda {
+        created = @document.first_or_new(:first_name => 'John', :last_name => 'Nunemaker')
+        created.first_name.should == 'John'
+        created.last_name.should == 'Nunemaker'
+        created.should be_new
+      }.should_not change { @document.count }
     end
   end
 
@@ -558,6 +605,74 @@ class DocumentTest < Test::Unit::TestCase
     @document.new.database.should == @document.database
   end
 
+  context "#update_attributes (new document)" do
+    setup do
+      @doc = @document.new(:first_name => 'John', :age => '27')
+      @doc.update_attributes(:first_name => 'Johnny', :age => 30)
+    end
+
+    should "insert document into the collection" do
+      @document.count.should == 1
+    end
+
+    should "assign an id for the document" do
+      @doc.id.should be_instance_of(Mongo::ObjectID)
+    end
+
+    should "save attributes" do
+      @doc.first_name.should == 'Johnny'
+      @doc.age.should == 30
+    end
+
+    should "update attributes in the database" do
+      doc = @doc.reload
+      doc.should == @doc
+      doc.first_name.should == 'Johnny'
+      doc.age.should == 30
+    end
+
+    should "allow updating custom attributes" do
+      @doc.update_attributes(:gender => 'mALe')
+      @doc.reload.gender.should == 'mALe'
+    end
+  end
+
+  context "#update_attributes (existing document)" do
+    setup do
+      @doc = @document.create(:first_name => 'John', :age => '27')
+      @doc.update_attributes(:first_name => 'Johnny', :age => 30)
+    end
+
+    should "not insert document into collection" do
+      @document.count.should == 1
+    end
+
+    should "update attributes" do
+      @doc.first_name.should == 'Johnny'
+      @doc.age.should == 30
+    end
+
+    should "update attributes in the database" do
+      doc = @doc.reload
+      doc.first_name.should == 'Johnny'
+      doc.age.should == 30
+    end
+  end
+
+  context "#update_attributes (return value)" do
+    setup do
+      @document.key :foo, String, :required => true
+    end
+
+    should "be true if document valid" do
+      @document.new.update_attributes(:foo => 'bar').should be_true
+    end
+
+    should "be false if document not valid" do
+      @document.new.update_attributes({}).should be_false
+    end
+  end
+  
   context "#save (new document)" do
     setup do
       @doc = @document.new(:first_name => 'John', :age => '27')
@@ -646,74 +761,6 @@ class DocumentTest < Test::Unit::TestCase
     end
   end
 
-  context "#update_attributes (new document)" do
-    setup do
-      @doc = @document.new(:first_name => 'John', :age => '27')
-      @doc.update_attributes(:first_name => 'Johnny', :age => 30)
-    end
-
-    should "insert document into the collection" do
-      @document.count.should == 1
-    end
-
-    should "assign an id for the document" do
-      @doc.id.should be_instance_of(Mongo::ObjectID)
-    end
-
-    should "save attributes" do
-      @doc.first_name.should == 'Johnny'
-      @doc.age.should == 30
-    end
-
-    should "update attributes in the database" do
-      doc = @doc.reload
-      doc.should == @doc
-      doc.first_name.should == 'Johnny'
-      doc.age.should == 30
-    end
-
-    should "allow updating custom attributes" do
-      @doc.update_attributes(:gender => 'mALe')
-      @doc.reload.gender.should == 'mALe'
-    end
-  end
-
-  context "#update_attributes (existing document)" do
-    setup do
-      @doc = @document.create(:first_name => 'John', :age => '27')
-      @doc.update_attributes(:first_name => 'Johnny', :age => 30)
-    end
-
-    should "not insert document into collection" do
-      @document.count.should == 1
-    end
-
-    should "update attributes" do
-      @doc.first_name.should == 'Johnny'
-      @doc.age.should == 30
-    end
-
-    should "update attributes in the database" do
-      doc = @doc.reload
-      doc.first_name.should == 'Johnny'
-      doc.age.should == 30
-    end
-  end
-
-  context "#update_attributes" do
-    setup do
-      @document.key :foo, String, :required => true
-    end
-
-    should "return true if document valid" do
-      @document.new.update_attributes(:foo => 'bar').should be_true
-    end
-
-    should "return false if document not valid" do
-      @document.new.update_attributes({}).should be_false
-    end
-  end
-  
   context "#save (with validations off)" do
     setup do
       @document = Doc do
@@ -752,6 +799,47 @@ class DocumentTest < Test::Unit::TestCase
       assert_raises(Mongo::OperationFailure) do
         @document.new(:name => 'John').save(:safe => true)
       end
+    end
+    
+    should "raise argument error if options has unsupported key" do
+      doc = @document.new
+      assert_raises(ArgumentError) { doc.save(:foo => true) }
+    end
+  end
+  
+  context "#save! (with options)" do
+    setup do
+      MongoMapper.ensured_indexes = []
+      
+      @document = Doc do
+        key :name, String
+        set_collection_name 'test_indexes'
+        ensure_index :name, :unique => true
+      end
+      
+      if @document.database.collection_names.include?(@document.collection.name)
+        @document.collection.drop_indexes
+      end
+      
+      MongoMapper.ensure_indexes!
+    end
+    
+    should "allow passing safe" do
+      doc = @document.create(:name => 'John')
+      
+      assert_raises(Mongo::OperationFailure) do
+        @document.new(:name => 'John').save!(:safe => true)
+      end
+    end
+    
+    should "raise argument error if options has unsupported key" do
+      doc = @document.new
+      assert_raises(ArgumentError) { doc.save!(:foo => true) }
+    end
+    
+    should "raise argument error if using validate as that would be pointless with save!" do
+      doc = @document.new
+      assert_raises(ArgumentError) { doc.save!(:validate => false) }
     end
   end
 
@@ -835,7 +923,7 @@ class DocumentTest < Test::Unit::TestCase
       @parent.save
       @daughter.save
 
-      collection = DocParent.find(:all)
+      collection = DocParent.all
       collection.size.should == 2
       collection.first.should be_kind_of(DocParent)
       collection.first.name.should == "Daddy Warbucks"
@@ -1040,7 +1128,7 @@ class DocumentTest < Test::Unit::TestCase
     end
   end
 
-  context "#exist?" do
+  context "#exists?" do
     setup do
       @doc = @document.create(:first_name => "James", :age => 27)
     end
@@ -1104,9 +1192,14 @@ class DocumentTest < Test::Unit::TestCase
     should "return self" do
       @instance.reload.object_id.should == @instance.object_id
     end
+    
+    should "raise DocumentNotFound if not found" do
+      @instance.destroy
+      assert_raises(MongoMapper::DocumentNotFound) { @instance.reload }
+    end
   end
 
-  context "Loading a document from the database with keys that are not defined" do
+  context "database has keys not defined in model" do
     setup do
       @id = Mongo::ObjectID.new
       @document.collection.insert({

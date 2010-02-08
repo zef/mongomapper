@@ -205,9 +205,13 @@ class Time
   end
 end
 
-# TODO: Remove when patch accepted into driver
 class Mongo::ObjectID
+  alias_method :original_to_json, :to_json
+  
   def to_json(options = nil)
     %Q("#{to_s}")
   end
 end
+
+require 'mongo_mapper/support/descendant_appends'
+require 'mongo_mapper/support/find'

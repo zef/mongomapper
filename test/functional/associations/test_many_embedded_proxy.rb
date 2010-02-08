@@ -15,6 +15,7 @@ class ManyEmbeddedProxyTest < Test::Unit::TestCase
     @pet_class = EDoc do
       key :name, String
     end
+    @pet_class.embedded_in :person
     @person_class = EDoc do
       key :name, String
     end
@@ -49,7 +50,9 @@ class ManyEmbeddedProxyTest < Test::Unit::TestCase
     post.reload
     post.comments.size.should == 2
     post.comments[0].should == frank
+    post.comments[0].new?.should == false
     post.comments[1].should == bill
+    post.comments[1].new?.should == false
   end
   
   should "allow embedding arbitrarily deep" do
@@ -131,6 +134,17 @@ class ManyEmbeddedProxyTest < Test::Unit::TestCase
       doc.people.first._root_document.should == doc
       doc.people.first.pets.first._root_document.should == doc
     end
+    should "create a reference to the owning document for all embedded documents before save" do
+      doc = @klass.new
+      meg = @person_class.new(:name => 'Meg')
+      pet = @pet_class.new(:name => 'Sparky', :species => 'Dog')
+      
+      doc.people << meg
+      meg.pets << pet
+
+      doc.people.first._parent_document.should == doc
+      doc.people.first.pets.first._parent_document.should == doc.people.first
+    end
 
     should "create a reference to the root document for all embedded documents" do
       sparky = @pet_class.new(:name => 'Sparky', :species => 'Dog')
@@ -142,6 +156,32 @@ class ManyEmbeddedProxyTest < Test::Unit::TestCase
       doc.reload
       doc.people.first._root_document.should == doc
       doc.people.first.pets.first._root_document.should == doc
+    end
+    should "create a reference to the owning document for all embedded documents" do
+      doc = @klass.new
+      meg = @person_class.new(:name => 'Meg')
+      pet = @pet_class.new(:name => 'Sparky', :species => 'Dog')
+      
+      doc.people << meg
+      meg.pets << pet
+      doc.save
+
+      doc.reload
+      doc.people.first._parent_document.should == doc
+      doc.people.first.pets.first._parent_document.should == doc.people.first
+    end
+
+    should "create embedded_in relationship for embedded docs" do
+      doc = @klass.new
+      meg = @person_class.new(:name => 'Meg')
+      pet = @pet_class.new(:name => 'Sparky', :species => 'Dog')
+      
+      doc.people << meg
+      meg.pets << pet
+      doc.save
+
+      doc.reload
+      doc.people.first.pets.first.person.should == doc.people.first
     end
   end
   

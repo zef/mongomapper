@@ -12,8 +12,8 @@ module MongoMapper
         protected
           def find_target
             (@_values || []).map do |hash|
-              child = polymorphic_class(hash).new(hash)
-              assign_root_document(child)
+              child = polymorphic_class(hash).load(hash)
+              assign_references(child)
               child
             end
           end
