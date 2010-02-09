@@ -122,4 +122,54 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
     pet.expects(:save!)
     pet.update_attributes!(attributes)
   end
+  
+  context "References to root and parent documents" do
+    setup do
+      @klass.key :dog, @pet_klass
+      @pet_klass.key :friend, @pet_klass
+      
+      @toy_klass = EDoc do
+        key :name, String
+      end
+      @pet_klass.many :toys, :class => @toy_klass
+      
+      @doc = @klass.new(:dog => {:name => 'sparky', :friend => {:name => 'fido'}, :toys => [{:name => 'bone'}]},
+                        :pets => [{:name => 'a cat', :friend => {:name => 'another cat'}}])    
+    end
+    
+    should "exist before save" do
+      @doc.dog._root_document.should == @doc
+      @doc.dog._parent_document.should == @doc
+
+      @doc.dog.friend._root_document.should == @doc
+      @doc.dog.friend._parent_document.should == @doc.dog
+
+      @doc.dog.toys.first._root_document.should == @doc
+      @doc.dog.toys.first._parent_document.should == @doc.dog
+
+      @doc.pets.first._root_document.should == @doc
+      @doc.pets.first._parent_document.should == @doc
+
+      @doc.pets.first.friend._root_document.should == @doc
+      @doc.pets.first.friend._parent_document.should == @doc.pets.first
+    end
+
+    should "remain when saved" do
+      @doc.save
+      @doc.dog._root_document.should == @doc
+      @doc.dog._parent_document.should == @doc
+
+      @doc.dog.friend._root_document.should == @doc
+      @doc.dog.friend._parent_document.should == @doc.dog
+
+      @doc.dog.toys.first._root_document.should == @doc
+      @doc.dog.toys.first._parent_document.should == @doc.dog
+
+      @doc.pets.first._root_document.should == @doc
+      @doc.pets.first._parent_document.should == @doc
+
+      @doc.pets.first.friend._root_document.should == @doc
+      @doc.pets.first.friend._parent_document.should == @doc.pets.first
+    end
+  end 
 end

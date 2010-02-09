@@ -162,6 +162,8 @@ module MongoMapper
             @new = true
             assign(attrs)
           end
+
+          assign_references_for_embedded_keys
         end
 
         def new?
@@ -282,6 +284,12 @@ module MongoMapper
             key = keys[name]
             instance_variable_set "@#{name}_before_typecast", value
             instance_variable_set "@#{name}", key.set(value)
+          end
+          
+          def assign_references_for_embedded_keys
+            embedded_keys.each do |doc|
+              send(doc.name)._parent_document = self if send(doc.name)
+            end
           end
       end
       
