@@ -21,7 +21,7 @@ module MongoMapper
         plugin Plugins::Validations
         plugin Plugins::NestedAttributes
 
-        attr_accessor :_root_document, :_parent_document
+        attr_accessor :_parent_document
       end
 
       super
@@ -50,6 +50,14 @@ module MongoMapper
           @new = false
         end
         result
+      end
+      
+      def _root_document
+        if _parent_document.respond_to?(:_root_document)
+          _parent_document._root_document
+        else
+          _parent_document
+        end
       end
     end # InstanceMethods
   end # EmbeddedDocument
