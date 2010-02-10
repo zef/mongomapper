@@ -11,8 +11,9 @@ module MongoMapper
           for association_name in attr_names
             
             if (association = associations.select { |key, value| key == association_name.to_s }) && association.present?
-              type = 'many'
-              custom_class = association.last.last.options[:class]
+              association = association.last.last
+              type = association.type
+              custom_class = association.options[:class]
             elsif (key = keys.select { |key, value| key == association_name.to_s }) && key.present? && key.last.last.embeddable?
               type = 'embedded_key'
               custom_class = key.last.last.type
@@ -59,8 +60,11 @@ module MongoMapper
               send(association_name) << klass.new(attributes)
             elsif existing_record = send(association_name).detect { |record| record.id.to_s == attributes['_id'].to_s }
               if existing_record.has_destroy_flag?(attributes) && allow_destroy
-                send(association_name).delete(existing_record)
-                existing_record.destroy unless klass.embeddable?
+                if klass.embeddable?
+                  send(association_name).delete(existing_record)
+                else
+                  existing_record.destroy
+                end
               else
                 existing_record.attributes = attributes.except(*UNASSIGNABLE_KEYS)
               end
@@ -69,7 +73,7 @@ module MongoMapper
 
         end
 
-        def assign_nested_attributes_for_embedded_key_association(association_name, klass, attributes, allow_destroy)
+        def assign_nested_attributes_for_one_association(association_name, klass, attributes, allow_destroy)
           unless attributes.is_a?(Hash)
             raise ArgumentError, "Hash expected, got #{attributes.class.name} (#{attributes.inspect})"
           end
@@ -77,18 +81,22 @@ module MongoMapper
           attributes.stringify_keys!
           
           if attributes['_id'].blank?
-            send("#{association_name}=", Player.new(attributes))
+            send("#{association_name}=", klass.new(attributes))
           else 
             existing_record = send(association_name)
             if existing_record.has_destroy_flag?(attributes) && allow_destroy
-              send("#{association_name}=", nil)
+              if klass.embeddable?
+                send("#{association_name}=", nil)
+              else
+                existing_record.destroy
+              end
             else
               existing_record.attributes = attributes.except(*UNASSIGNABLE_KEYS)
             end
           end
-
         end
 
+       alias_method :assign_nested_attributes_for_embedded_key_association, :assign_nested_attributes_for_one_association
 
         def has_destroy_flag?(hash)
           Boolean.to_mongo(hash['_destroy'])
